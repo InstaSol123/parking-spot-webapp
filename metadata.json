@@ -1,0 +1,5 @@
+{
+  "name": "Parking Spot with app calling",
+  "description": "A QR-based vehicle owner contact system with privacy masking, role-based distribution (Admin-Distributor-Retailer), and credit management.",
+  "requestFramePermissions": []
+}

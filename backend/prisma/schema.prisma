@@ -1,0 +1,249 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  DISTRIBUTOR
+  RETAILER
+}
+
+enum QRStatus {
+  UNUSED
+  ACTIVE
+}
+
+enum PlanType {
+  FREE
+  PAID_MASKED
+}
+
+enum TransactionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum CreditLogType {
+  ADD
+  SUBTRACT
+  ACTIVATION
+  GRANT
+}
+
+model User {
+  id            String   @id @default(uuid())
+  name          String
+  businessName  String?
+  email         String   @unique
+  mobile        String
+  password      String
+  role          UserRole
+  partnerId     String   @unique
+  parentId      String?
+  address       String?
+  createdAt     DateTime @default(now())
+
+  // Documents
+  aadhaar       String?
+  pan           String?
+  gst           String?
+  msme          String?
+
+  // Relationships
+  parent        User?    @relation("UserHierarchy", fields: [parentId], references: [id])
+  children      User[]   @relation("UserHierarchy")
+  accessRoleId  String?
+  accessRole    AccessRole? @relation(fields: [accessRoleId], references: [id])
+
+  // Credits & Credits History
+  credits       Credits?
+  creditLogs    CreditLog[]
+
+  // Distributor-specific
+  paymentDetails String?
+  paymentQr      String?
+  plans          Plan[]
+
+  // Activated QRs
+  activatedQRs  QRCodeData[] @relation("ActivatedBy")
+
+  // Transactions
+  sentTransactions    Transaction[] @relation("FromUser")
+  receivedTransactions Transaction[] @relation("ToUser")
+
+  @@index([parentId])
+  @@index([accessRoleId])
+  @@index([role, parentId])
+  @@index([createdAt])
+}
+
+model Credits {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  total     Int      @default(0)
+  used      Int      @default(0)
+  available Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CreditLog {
+  id              String        @id @default(uuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type            CreditLogType
+  amount          Int
+  reason          String
+  relatedUserId   String?
+  relatedUserName String?
+  createdAt       DateTime      @default(now())
+
+  @@index([userId])
+  @@index([type, userId])
+  @@index([createdAt])
+}
+
+model AccessRole {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  permissions Permission[]
+  users       User[]
+
+  @@index([name])
+}
+
+model Permission {
+  id        String   @id @default(uuid())
+  roleId    String
+  role      AccessRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  resource  String
+  actions   String   // Comma-separated: "view,create,edit,delete"
+  createdAt DateTime @default(now())
+
+  @@index([roleId])
+  @@unique([roleId, resource])
+}
+
+model Plan {
+  id              String   @id @default(uuid())
+  distributorId   String
+  distributor     User     @relation(fields: [distributorId], references: [id], onDelete: Cascade)
+  name            String
+  credits         Int
+  price           Int
+  createdAt       DateTime @default(now())
+
+  @@index([distributorId])
+}
+
+model SubscriptionPlan {
+  id            String   @id @default(uuid())
+  name          String   @unique
+  type          PlanType
+  price         Int
+  validityDays  Int
+  description   String
+  createdAt     DateTime @default(now())
+
+  qrCodes       QRCodeData[]
+
+  @@index([type])
+}
+
+model QRCodeData {
+  id                  String   @id @default(uuid())
+  code                String   @unique
+  serialNumber        String   @unique
+  generationDate      DateTime @default(now())
+  status              QRStatus @default(UNUSED)
+  plan                PlanType @default(FREE)
+  subscriptionPlanId  String?
+  subscriptionPlan    SubscriptionPlan? @relation(fields: [subscriptionPlanId], references: [id], onDelete: SetNull)
+  subscriptionPlanName String?
+  downloaded          Boolean  @default(false)
+  downloadedAt        DateTime?
+
+  // Owner details
+  ownerName           String?
+  ownerMobile         String?
+  ownerEmail          String?
+  ownerAddress        String?
+  vehicleNumber       String?
+  aadhaar             String?
+  pan                 String?
+
+  activatedById       String?
+  activatedBy         User?    @relation("ActivatedBy", fields: [activatedById], references: [id], onDelete: SetNull)
+  activatedAt         DateTime?
+  transactionId       String?
+  createdAt           DateTime @default(now())
+
+  @@index([status])
+  @@index([activatedById])
+  @@index([subscriptionPlanId])
+  @@index([status, activatedById])
+  @@index([createdAt])
+  @@index([downloaded])
+  @@index([status, downloaded])
+}
+
+model Transaction {
+  id            String             @id @default(uuid())
+  fromUserId    String
+  fromUser      User               @relation("FromUser", fields: [fromUserId], references: [id], onDelete: Cascade)
+  fromUserName  String
+  toUserId      String
+  toUser        User               @relation("ToUser", fields: [toUserId], references: [id], onDelete: Cascade)
+  amount        Int
+  txnId         String
+  status        TransactionStatus  @default(PENDING)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  @@index([fromUserId])
+  @@index([toUserId])
+  @@index([status])
+  @@index([status, fromUserId])
+  @@index([createdAt])
+}
+
+model Notification {
+  id         String   @id @default(uuid())
+  title      String
+  message    String
+  targetRole String   // ALL, DISTRIBUTOR, RETAILER
+  createdAt  DateTime @default(now())
+
+  @@index([targetRole])
+}
+
+model SMSTemplate {
+  id   String @id @default(uuid())
+  text String @unique
+}
+
+model SystemSettings {
+  id                String @id @default(uuid())
+  smsApiKey         String?
+  maskedCallApiKey  String?
+  adminPaymentInfo  String?
+  adminPaymentQr    String?
+  supportEmail      String?
+  supportPhone      String?
+  logoUrl           String?
+  updatedAt         DateTime @updatedAt
+}
